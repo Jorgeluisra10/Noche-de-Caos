@@ -1,13 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   SafeAreaView,
   View,
   Text,
   TextInput,
-  Pressable,
   FlatList,
-  Animated,
-  Easing,
   LayoutAnimation,
   Platform,
   UIManager,
@@ -17,11 +14,12 @@ import {
   BackHandler,
   Alert,
   TouchableOpacity,
+  Pressable,
 } from "react-native";
-import type { DimensionValue } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 
-/* ===================== Configuración ===================== */
+import ScreenBackground from "../components/ScreenBackground";
+
+/* ===================== Configuración (LayoutAnimation Android) ===================== */
 if (
   Platform.OS === "android" &&
   UIManager.setLayoutAnimationEnabledExperimental
@@ -33,8 +31,8 @@ if (
 type Phase =
   | "home"
   | "setup"
-  | "reveal_pass" // Pantalla "Pásale el cel a Juan"
-  | "reveal_secret" // Pantalla "Mantén para ver"
+  | "reveal_pass"
+  | "reveal_secret"
   | "discussion"
   | "vote_pass"
   | "vote_pick"
@@ -96,7 +94,7 @@ function GlassCard({
   color = "rgba(255,255,255,0.08)",
 }: {
   children: React.ReactNode;
-  style?: object;
+  style?: any;
   color?: string;
 }) {
   return (
@@ -134,6 +132,7 @@ function Btn({
     if (variant === "solid") return "rgba(255,255,255,0.15)";
     return "transparent";
   };
+
   return (
     <TouchableOpacity
       onPress={() => {
@@ -157,7 +156,7 @@ function Btn({
         minWidth: 100,
       }}
     >
-      <Text style={{ fontSize: 17, fontWeight: "700", color: "white" }}>
+      <Text style={{ fontSize: 17, fontWeight: "800", color: "white" }}>
         {label}
       </Text>
     </TouchableOpacity>
@@ -180,8 +179,8 @@ function BigTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-/* ===================== App Principal ===================== */
-export default function App() {
+/* ===================== Pantalla ===================== */
+export default function ImpostorGame({ navigation }: any) {
   const [phase, setPhase] = useState<Phase>("home");
 
   // Datos
@@ -205,28 +204,37 @@ export default function App() {
   const [voteIndex, setVoteIndex] = useState(0);
   const [votes, setVotes] = useState<VoteChoice[]>([]);
 
-  // Lógica de "Mantener presionado"
+  // “Mantener presionado”
   const [isHoldingSecret, setIsHoldingSecret] = useState(false);
 
-  // Timer Discussion
+  // Timer discussion
   const [discussionEndsAt, setDiscussionEndsAt] = useState<number>(0);
   const [timeLeft, setTimeLeft] = useState(0);
   const [discussionRunning, setDiscussionRunning] = useState(false);
 
-  // Back Handler
+  /* ===================== Back Handler ===================== */
   useEffect(() => {
+    if (Platform.OS !== "android") return;
+
     const backAction = () => {
+      // Si estás en el home interno del juego, deja que vuelva a la pantalla anterior (HomeScreen)
       if (phase === "home") return false;
-      Alert.alert("¿Salir?", "Se perderá el progreso.", [
+
+      Alert.alert("¿Salir?", "Se perderá el progreso de esta ronda.", [
         { text: "Cancelar", style: "cancel" },
         {
           text: "Salir",
           style: "destructive",
-          onPress: () => setPhase("home"),
+          onPress: () => {
+            setDiscussionRunning(false);
+            setIsHoldingSecret(false);
+            setPhase("home");
+          },
         },
       ]);
       return true;
     };
+
     const handler = BackHandler.addEventListener(
       "hardwareBackPress",
       backAction
@@ -234,9 +242,10 @@ export default function App() {
     return () => handler.remove();
   }, [phase]);
 
-  // Timer Effect
+  /* ===================== Timer Effect ===================== */
   useEffect(() => {
     if (!discussionRunning) return;
+
     const interval = setInterval(() => {
       const t = Math.max(0, Math.ceil((discussionEndsAt - Date.now()) / 1000));
       setTimeLeft(t);
@@ -245,42 +254,61 @@ export default function App() {
         Vibration.vibrate([0, 500]);
       }
     }, 500);
+
     return () => clearInterval(interval);
   }, [discussionRunning, discussionEndsAt]);
 
   /* ===================== Lógica del Juego ===================== */
-  const startNewRound = (keep: boolean) => {
-    const pList = keep ? players : players;
-    if (pList.length < 3) {
+  const startNewRound = () => {
+    if (players.length < 3) {
       Alert.alert("Error", "Mínimo 3 jugadores.");
       return;
     }
 
-    // Preparar jugadores y roles
-    const rp = shuffle([...pList]);
+    setDiscussionRunning(false);
+    setTimeLeft(0);
+    setIsHoldingSecret(false);
+
+    const rp = shuffle([...players]);
     const imp = rp[Math.floor(Math.random() * rp.length)].id;
-    const w = useCustomWord
-      ? { category: customCategory || "General", word: customWord || "Secreto" }
+
+    const w: Word = useCustomWord
+      ? {
+          category: (customCategory.trim() || "General").slice(0, 18),
+          word: (customWord.trim() || "Secreto").slice(0, 28),
+        }
       : pickRandomWord();
 
     setRoundPlayers(rp);
     setImpostorId(imp);
     setSecret(w);
+
     setRevealIndex(0);
     setVoteIndex(0);
     setVotes([]);
+
     setPhase("reveal_pass");
   };
 
   const addPlayer = () => {
-    if (newName.trim().length < 2) return;
-    setPlayers([...players, { id: uid(), name: newName.trim() }]);
+    const name = sanitizeName(newName);
+    if (name.length < 2) return;
+
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setPlayers((prev) => [...prev, { id: uid(), name }]);
     setNewName("");
   };
 
+  const removePlayer = (id: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setPlayers((prev) => prev.filter((p) => p.id !== id));
+  };
+
   const nextReveal = () => {
+    setIsHoldingSecret(false);
+
     if (revealIndex + 1 < roundPlayers.length) {
-      setRevealIndex(revealIndex + 1);
+      setRevealIndex((i) => i + 1);
       setPhase("reveal_pass");
     } else {
       setPhase("discussion");
@@ -289,596 +317,758 @@ export default function App() {
 
   const vote = (targetId: string | "skip") => {
     const voter = roundPlayers[voteIndex];
-    setVotes([
-      ...votes.filter((v) => v.voterId !== voter.id),
+
+    setVotes((prev) => [
+      ...prev.filter((v) => v.voterId !== voter.id),
       { voterId: voter.id, targetId },
     ]);
 
     if (voteIndex + 1 < roundPlayers.length) {
-      setVoteIndex(voteIndex + 1);
+      setVoteIndex((i) => i + 1);
       setPhase("vote_pass");
     } else {
       setPhase("results");
     }
   };
 
-  /* ===================== Componente de Revelación (EL IMPORTANTE) ===================== */
+  /* ===================== Revelación ===================== */
   const currentPlayer = roundPlayers[revealIndex];
   const isImpostor = currentPlayer?.id === impostorId;
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#080808" }}>
+    <View style={{ flex: 1, backgroundColor: "#000" }}>
       <StatusBar barStyle="light-content" />
-      <LinearGradient
-        colors={["#1a1a2e", "#16213e", "#0f0f1a"]}
-        style={{ position: "absolute", width: "100%", height: "100%" }}
-      />
 
-      <SafeAreaView style={{ flex: 1 }}>
-        <View style={{ flex: 1, padding: 20 }}>
-          {/* HOME */}
-          {phase === "home" && (
-            <View style={{ flex: 1, justifyContent: "center" }}>
-              <BigTitle>NOCHE DE CAOS</BigTitle>
-              <Text
-                style={{
-                  textAlign: "center",
-                  color: "#aaa",
-                  marginBottom: 40,
-                  fontSize: 16,
-                }}
-              >
-                Descubre al impostor antes de que sea tarde.
-              </Text>
-              <GlassCard>
-                <Btn
-                  label="JUEGO RÁPIDO (3 Jugadores)"
-                  onPress={() => startNewRound(true)}
-                  variant="action"
-                />
-                <View style={{ height: 15 }} />
-                <Btn
-                  label="Configurar Jugadores"
-                  onPress={() => setPhase("setup")}
-                  variant="solid"
-                />
-              </GlassCard>
-            </View>
-          )}
-
-          {/* SETUP */}
-          {phase === "setup" && (
-            <KeyboardAvoidingView
-              behavior={Platform.OS === "ios" ? "padding" : "height"}
-              style={{ flex: 1 }}
-            >
-              <Text
-                style={{
-                  fontSize: 24,
-                  fontWeight: "bold",
-                  color: "white",
-                  marginBottom: 10,
-                }}
-              >
-                Jugadores ({players.length})
-              </Text>
-              <View style={{ flexDirection: "row", gap: 10, marginBottom: 20 }}>
-                <TextInput
-                  value={newName}
-                  onChangeText={setNewName}
-                  placeholder="Nombre..."
-                  placeholderTextColor="#666"
-                  style={{
-                    flex: 1,
-                    backgroundColor: "#222",
-                    color: "white",
-                    borderRadius: 12,
-                    padding: 14,
-                    borderWidth: 1,
-                    borderColor: "#333",
-                  }}
-                />
-                <Btn
-                  label="+"
-                  onPress={addPlayer}
-                  variant="action"
-                  disabled={newName.length < 2}
-                />
-              </View>
-              <FlatList
-                data={players}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      padding: 15,
-                      backgroundColor: "rgba(255,255,255,0.05)",
-                      marginBottom: 8,
-                      borderRadius: 12,
-                    }}
-                  >
-                    <Text style={{ color: "white", fontSize: 16 }}>
-                      {item.name}
-                    </Text>
-                    <TouchableOpacity
-                      onPress={() =>
-                        setPlayers(players.filter((p) => p.id !== item.id))
-                      }
-                    >
-                      <Text style={{ color: "#ff5555" }}>Eliminar</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              />
-              <View style={{ gap: 10, marginTop: 10 }}>
-                <Btn
-                  label={
-                    useCustomWord ? "Palabra: Manual" : "Palabra: Aleatoria"
-                  }
-                  onPress={() => setUseCustomWord(!useCustomWord)}
-                  variant="ghost"
-                />
-                {useCustomWord && (
-                  <TextInput
-                    placeholder="Escribe la palabra secreta..."
-                    value={customWord}
-                    onChangeText={setCustomWord}
-                    placeholderTextColor="#555"
-                    style={{
-                      backgroundColor: "#222",
-                      color: "white",
-                      padding: 12,
-                      borderRadius: 12,
-                    }}
-                  />
-                )}
-                <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
-                  <View style={{ flex: 1 }}>
-                    <Btn
-                      label="Volver"
-                      onPress={() => setPhase("home")}
-                      variant="ghost"
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Btn
-                      label="Jugar"
-                      onPress={() => startNewRound(true)}
-                      variant="action"
-                      disabled={players.length < 3}
-                    />
-                  </View>
-                </View>
-              </View>
-            </KeyboardAvoidingView>
-          )}
-
-          {/* REVEAL: PASO 1 (Identificación) */}
-          {phase === "reveal_pass" && (
+      <ScreenBackground>
+        <SafeAreaView style={{ flex: 1 }}>
+          <View style={{ flex: 1, padding: 20 }}>
+            {/* Barra superior (salir + ajustes) */}
+            {/* Barra superior (salir) */}
             <View
               style={{
-                flex: 1,
-                justifyContent: "center",
+                height: 48,
+                flexDirection: "row",
                 alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 8,
               }}
             >
-              <Text style={{ color: "#888", fontSize: 18, marginBottom: 10 }}>
-                Turno de
-              </Text>
-              <BigTitle>{currentPlayer?.name}</BigTitle>
-              <Text
-                style={{
-                  color: "#aaa",
-                  textAlign: "center",
-                  marginBottom: 40,
-                  paddingHorizontal: 20,
-                }}
-              >
-                Asegúrate de que nadie más esté mirando la pantalla.
-              </Text>
-              <Btn
-                label={`SOY ${currentPlayer?.name?.toUpperCase()}`}
-                onPress={() => setPhase("reveal_secret")}
-                variant="action"
-              />
-            </View>
-          )}
-
-          {/* REVEAL: PASO 2 (Mantener Presionado - CORREGIDO) */}
-          {phase === "reveal_secret" && (
-            <View style={{ flex: 1, justifyContent: "space-between" }}>
-              <View style={{ marginTop: 20 }}>
-                <Text
-                  style={{ color: "#aaa", textAlign: "center", fontSize: 16 }}
-                >
-                  Hola,{" "}
-                  <Text style={{ color: "white", fontWeight: "bold" }}>
-                    {currentPlayer?.name}
-                  </Text>
-                </Text>
-              </View>
-
-              {/* ÁREA DE TOQUE GIGANTE */}
               <Pressable
-                onPressIn={() => {
-                  setIsHoldingSecret(true);
-                  Vibration.vibrate(50); // Feedback inmediato
+                onPress={() => {
+                  if (phase === "home") {
+                    navigation?.goBack?.();
+                    return;
+                  }
+                  Alert.alert(
+                    "¿Salir?",
+                    "Se perderá el progreso de esta ronda.",
+                    [
+                      { text: "Cancelar", style: "cancel" },
+                      {
+                        text: "Salir",
+                        style: "destructive",
+                        onPress: () => {
+                          setDiscussionRunning(false);
+                          setIsHoldingSecret(false);
+                          setPhase("home");
+                        },
+                      },
+                    ]
+                  );
                 }}
-                onPressOut={() => {
-                  setIsHoldingSecret(false);
-                }}
-                style={{
-                  flex: 1,
-                  marginVertical: 20,
-                  borderRadius: 24,
-                  backgroundColor: isHoldingSecret
-                    ? isImpostor
-                      ? "#3f1a1a"
-                      : "#1a3f30" // Fondo Rojo si es impostor, Verde si no
-                    : "#222",
-                  borderWidth: 2,
-                  borderColor: isHoldingSecret
-                    ? isImpostor
-                      ? "#ff5555"
-                      : "#55ff99"
-                    : "#444",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  shadowColor: isHoldingSecret
-                    ? isImpostor
-                      ? "red"
-                      : "green"
-                    : "black",
-                  shadowOpacity: 0.5,
-                  shadowRadius: 20,
-                }}
+                style={({ pressed }) => [
+                  {
+                    width: 44,
+                    height: 44,
+                    borderRadius: 14,
+                    backgroundColor: "rgba(255,255,255,0.10)",
+                    borderWidth: 1,
+                    borderColor: "rgba(255,255,255,0.12)",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  },
+                  pressed && { opacity: 0.7 },
+                ]}
               >
-                {isHoldingSecret ? (
-                  // CONTENIDO REVELADO
-                  <View style={{ alignItems: "center" }}>
-                    <Text style={{ fontSize: 80, marginBottom: 20 }}>
-                      {isImpostor ? "🤫" : "🗺️"}
-                    </Text>
-                    <Text
-                      style={{
-                        fontSize: 36,
-                        fontWeight: "900",
-                        color: isImpostor ? "#ff5555" : "#55ff99",
-                        letterSpacing: 2,
-                      }}
-                    >
-                      {isImpostor ? "IMPOSTOR" : "TRIPULACIÓN"}
-                    </Text>
-
-                    {!isImpostor && (
-                      <View style={{ marginTop: 30, alignItems: "center" }}>
-                        <Text
-                          style={{
-                            color: "#aaa",
-                            fontSize: 14,
-                            textTransform: "uppercase",
-                            letterSpacing: 1,
-                          }}
-                        >
-                          Palabra Secreta
-                        </Text>
-                        <Text
-                          style={{
-                            color: "white",
-                            fontSize: 42,
-                            fontWeight: "bold",
-                            marginTop: 5,
-                          }}
-                        >
-                          {secret?.word}
-                        </Text>
-                        <Text style={{ color: "#888", marginTop: 10 }}>
-                          Categoría: {secret?.category}
-                        </Text>
-                      </View>
-                    )}
-
-                    {isImpostor && (
-                      <Text
-                        style={{
-                          color: "#ffaaaa",
-                          marginTop: 20,
-                          textAlign: "center",
-                          paddingHorizontal: 30,
-                        }}
-                      >
-                        No sabes la palabra. Engaña a todos.
-                      </Text>
-                    )}
-                  </View>
-                ) : (
-                  // ESTADO OCULTO
-                  <View style={{ alignItems: "center", opacity: 0.5 }}>
-                    <Text style={{ fontSize: 60, marginBottom: 20 }}>👆</Text>
-                    <Text
-                      style={{
-                        color: "white",
-                        fontSize: 20,
-                        fontWeight: "bold",
-                      }}
-                    >
-                      MANTÉN PRESIONADO
-                    </Text>
-                    <Text style={{ color: "#aaa", marginTop: 10 }}>
-                      para ver tu rol
-                    </Text>
-                  </View>
-                )}
+                <Text
+                  style={{ color: "#fff", fontSize: 18, fontWeight: "900" }}
+                >
+                  ←
+                </Text>
               </Pressable>
 
-              <View style={{ marginBottom: 20 }}>
+              <Text
+                style={{ color: "#fff", fontWeight: "900", letterSpacing: 0.5 }}
+              >
+                IMPOSTOR
+              </Text>
+
+              <View style={{ width: 44, height: 44 }} />
+            </View>
+
+            {/* HOME */}
+            {phase === "home" && (
+              <View style={{ flex: 1, justifyContent: "center" }}>
+                <BigTitle>IMPOSTOR</BigTitle>
                 <Text
                   style={{
                     textAlign: "center",
-                    color: "#666",
-                    marginBottom: 15,
-                    fontSize: 12,
+                    color: "rgba(255,255,255,0.72)",
+                    marginBottom: 28,
+                    fontSize: 15,
+                    lineHeight: 22,
                   }}
                 >
-                  Suelta el dedo para ocultar la información inmediatamente.
+                  Descubre al impostor antes de que sea tarde.
                 </Text>
-                <Btn
-                  label="YA LO VI, SIGUIENTE"
-                  onPress={nextReveal}
-                  variant="solid"
-                />
+
+                <GlassCard>
+                  <Btn
+                    label="JUEGO RÁPIDO"
+                    onPress={startNewRound}
+                    variant="action"
+                  />
+                  <View style={{ height: 14 }} />
+                  <Btn
+                    label="Configurar jugadores"
+                    onPress={() => setPhase("setup")}
+                    variant="solid"
+                  />
+                </GlassCard>
               </View>
-            </View>
-          )}
+            )}
 
-          {/* DISCUSIÓN */}
-          {phase === "discussion" && (
-            <View
-              style={{
-                flex: 1,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <BigTitle>DEBATE</BigTitle>
-              <Text style={{ color: "#aaa", marginBottom: 30 }}>
-                El tiempo corre. Descubran al mentiroso.
-              </Text>
-
-              <View
-                style={{
-                  width: 220,
-                  height: 220,
-                  borderRadius: 110,
-                  borderWidth: 4,
-                  borderColor: discussionRunning ? "#3b82f6" : "#333",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  marginBottom: 40,
-                }}
+            {/* SETUP */}
+            {phase === "setup" && (
+              <KeyboardAvoidingView
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
+                style={{ flex: 1 }}
               >
                 <Text
                   style={{
-                    fontSize: 70,
-                    fontWeight: "bold",
+                    fontSize: 22,
+                    fontWeight: "900",
                     color: "white",
-                    fontVariant: ["tabular-nums"],
+                    marginBottom: 10,
                   }}
                 >
-                  {discussionRunning ? timeLeft : "0"}
+                  Jugadores ({players.length})
                 </Text>
-                <Text style={{ color: "#666" }}>segundos</Text>
-              </View>
 
-              <View style={{ flexDirection: "row", gap: 10, marginBottom: 20 }}>
-                <Btn
-                  label="60s"
-                  onPress={() => {
-                    setDiscussionRunning(true);
-                    setDiscussionEndsAt(Date.now() + 61000);
-                  }}
-                  variant={discussionRunning ? "ghost" : "solid"}
-                />
-                <Btn
-                  label="120s"
-                  onPress={() => {
-                    setDiscussionRunning(true);
-                    setDiscussionEndsAt(Date.now() + 121000);
-                  }}
-                  variant={discussionRunning ? "ghost" : "solid"}
-                />
-              </View>
-
-              <View style={{ width: "100%", paddingHorizontal: 20 }}>
-                <Btn
-                  label="VOTAR AHORA"
-                  onPress={() => {
-                    setVoteIndex(0);
-                    setPhase("vote_pass");
-                  }}
-                  variant="action"
-                />
-              </View>
-            </View>
-          )}
-
-          {/* VOTACIÓN: PASO 1 (Pase) */}
-          {phase === "vote_pass" && (
-            <View
-              style={{
-                flex: 1,
-                justifyContent: "center",
-                alignItems: "center",
-              }}
-            >
-              <Text style={{ color: "#888", fontSize: 18 }}>
-                Turno de votar
-              </Text>
-              <BigTitle>{roundPlayers[voteIndex]?.name}</BigTitle>
-              <View style={{ height: 40 }} />
-              <Btn
-                label="ABRIR VOTACIÓN"
-                onPress={() => setPhase("vote_pick")}
-                variant="action"
-              />
-            </View>
-          )}
-
-          {/* VOTACIÓN: PASO 2 (Elección) */}
-          {phase === "vote_pick" && (
-            <View style={{ flex: 1 }}>
-              <Text
-                style={{ color: "#aaa", textAlign: "center", marginTop: 20 }}
-              >
-                Votando como:{" "}
-                <Text style={{ color: "white", fontWeight: "bold" }}>
-                  {roundPlayers[voteIndex]?.name}
-                </Text>
-              </Text>
-              <BigTitle>¿Quién es el impostor?</BigTitle>
-              <FlatList
-                style={{ marginTop: 20 }}
-                data={[
-                  ...roundPlayers.filter(
-                    (p) => p.id !== roundPlayers[voteIndex].id
-                  ),
-                  { id: "skip", name: "Salvar / No sé" },
-                ]}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    onPress={() => vote(item.id)}
-                    style={{
-                      backgroundColor: "rgba(255,255,255,0.1)",
-                      padding: 20,
-                      marginBottom: 10,
-                      borderRadius: 16,
-                      flexDirection: "row",
-                      alignItems: "center",
-                    }}
-                  >
-                    <Text style={{ fontSize: 24, marginRight: 15 }}>
-                      {item.id === "skip" ? "🏳️" : "👉"}
-                    </Text>
-                    <Text
-                      style={{
-                        color: "white",
-                        fontSize: 18,
-                        fontWeight: "bold",
-                      }}
-                    >
-                      {item.name}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              />
-            </View>
-          )}
-
-          {/* RESULTADOS */}
-          {phase === "results" &&
-            (() => {
-              // Calcular resultados
-              const voteMap = new Map();
-              votes.forEach((v) =>
-                voteMap.set(v.targetId, (voteMap.get(v.targetId) || 0) + 1)
-              );
-              let topId = null,
-                maxVotes = -1,
-                tie = false;
-              voteMap.forEach((count, id) => {
-                if (count > maxVotes) {
-                  maxVotes = count;
-                  topId = id;
-                  tie = false;
-                } else if (count === maxVotes) tie = true;
-              });
-
-              const caught = !tie && topId === impostorId;
-              const skipped = topId === "skip";
-              const impostorName = roundPlayers.find(
-                (p) => p.id === impostorId
-              )?.name;
-
-              return (
                 <View
-                  style={{
-                    flex: 1,
-                    justifyContent: "center",
-                    alignItems: "center",
-                  }}
+                  style={{ flexDirection: "row", gap: 10, marginBottom: 16 }}
                 >
-                  <Text style={{ fontSize: 80, marginBottom: 10 }}>
-                    {caught ? "🎉" : "💀"}
-                  </Text>
-                  <BigTitle>
-                    {tie
-                      ? "EMPATE"
-                      : skipped
-                      ? "NADIE FUE EXPULSADO"
-                      : caught
-                      ? "IMPOSTOR ATRAPADO"
-                      : "INOCENTE EXPULSADO"}
-                  </BigTitle>
-
-                  <View
+                  <TextInput
+                    value={newName}
+                    onChangeText={setNewName}
+                    placeholder="Nombre..."
+                    placeholderTextColor="#666"
                     style={{
-                      backgroundColor: caught ? "#1a3f30" : "#3f1a1a",
-                      padding: 20,
-                      borderRadius: 20,
-                      width: "100%",
-                      alignItems: "center",
-                      marginVertical: 20,
+                      flex: 1,
+                      backgroundColor: "rgba(0,0,0,0.35)",
+                      color: "white",
+                      borderRadius: 14,
+                      padding: 14,
+                      borderWidth: 1,
+                      borderColor: "rgba(255,255,255,0.12)",
                     }}
-                  >
-                    <Text style={{ color: "#aaa" }}>El impostor era:</Text>
-                    <Text
+                  />
+                  <Btn
+                    label="+"
+                    onPress={addPlayer}
+                    variant="action"
+                    disabled={sanitizeName(newName).length < 2}
+                  />
+                </View>
+
+                <FlatList
+                  data={players}
+                  keyExtractor={(item) => item.id}
+                  renderItem={({ item }) => (
+                    <View
                       style={{
-                        color: "white",
-                        fontSize: 32,
-                        fontWeight: "900",
+                        flexDirection: "row",
+                        justifyContent: "space-between",
+                        padding: 14,
+                        backgroundColor: "rgba(255,255,255,0.06)",
+                        marginBottom: 8,
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        borderColor: "rgba(255,255,255,0.10)",
                       }}
                     >
-                      {impostorName}
-                    </Text>
-                  </View>
+                      <Text
+                        style={{
+                          color: "white",
+                          fontSize: 16,
+                          fontWeight: "800",
+                        }}
+                      >
+                        {item.name}
+                      </Text>
 
-                  <Text style={{ color: "#aaa", fontSize: 16 }}>
-                    Palabra secreta:{" "}
-                    <Text style={{ color: "white" }}>{secret?.word}</Text>
-                  </Text>
+                      <TouchableOpacity
+                        onPress={() => removePlayer(item.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={{ color: "#ff6b6b", fontWeight: "900" }}>
+                          Eliminar
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                />
+
+                <View style={{ gap: 10, marginTop: 10 }}>
+                  <Btn
+                    label={
+                      useCustomWord ? "Palabra: Manual" : "Palabra: Aleatoria"
+                    }
+                    onPress={() => setUseCustomWord((v) => !v)}
+                    variant="ghost"
+                  />
+
+                  {useCustomWord && (
+                    <View style={{ gap: 10 }}>
+                      <TextInput
+                        placeholder="Categoría (ej: Lugar, Comida...)"
+                        value={customCategory}
+                        onChangeText={setCustomCategory}
+                        placeholderTextColor="#777"
+                        style={{
+                          backgroundColor: "rgba(0,0,0,0.35)",
+                          color: "white",
+                          padding: 12,
+                          borderRadius: 14,
+                          borderWidth: 1,
+                          borderColor: "rgba(255,255,255,0.12)",
+                        }}
+                      />
+                      <TextInput
+                        placeholder="Escribe la palabra secreta..."
+                        value={customWord}
+                        onChangeText={setCustomWord}
+                        placeholderTextColor="#777"
+                        style={{
+                          backgroundColor: "rgba(0,0,0,0.35)",
+                          color: "white",
+                          padding: 12,
+                          borderRadius: 14,
+                          borderWidth: 1,
+                          borderColor: "rgba(255,255,255,0.12)",
+                        }}
+                      />
+                    </View>
+                  )}
 
                   <View
-                    style={{
-                      flexDirection: "row",
-                      gap: 10,
-                      marginTop: 40,
-                      width: "100%",
-                    }}
+                    style={{ flexDirection: "row", gap: 10, marginTop: 10 }}
                   >
                     <View style={{ flex: 1 }}>
                       <Btn
-                        label="Inicio"
+                        label="Volver"
                         onPress={() => setPhase("home")}
                         variant="ghost"
                       />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Btn
-                        label="Jugar Otra Vez"
-                        onPress={() => startNewRound(true)}
+                        label="Jugar"
+                        onPress={startNewRound}
                         variant="action"
+                        disabled={players.length < 3}
                       />
                     </View>
                   </View>
                 </View>
-              );
-            })()}
-        </View>
-      </SafeAreaView>
+              </KeyboardAvoidingView>
+            )}
+
+            {/* REVEAL: PASO 1 */}
+            {phase === "reveal_pass" && (
+              <View
+                style={{
+                  flex: 1,
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                <Text
+                  style={{
+                    color: "rgba(255,255,255,0.6)",
+                    fontSize: 16,
+                    marginBottom: 10,
+                  }}
+                >
+                  Turno de
+                </Text>
+                <BigTitle>{currentPlayer?.name}</BigTitle>
+                <Text
+                  style={{
+                    color: "rgba(255,255,255,0.65)",
+                    textAlign: "center",
+                    marginBottom: 34,
+                    paddingHorizontal: 20,
+                    lineHeight: 22,
+                  }}
+                >
+                  Asegúrate de que nadie más esté mirando la pantalla.
+                </Text>
+                <Btn
+                  label={`SOY ${currentPlayer?.name?.toUpperCase() || "YO"}`}
+                  onPress={() => setPhase("reveal_secret")}
+                  variant="action"
+                />
+              </View>
+            )}
+
+            {/* REVEAL: PASO 2 (Mantener Presionado) */}
+            {phase === "reveal_secret" && (
+              <View style={{ flex: 1, justifyContent: "space-between" }}>
+                <View style={{ marginTop: 4 }}>
+                  <Text
+                    style={{
+                      color: "rgba(255,255,255,0.7)",
+                      textAlign: "center",
+                      fontSize: 15,
+                    }}
+                  >
+                    Hola,{" "}
+                    <Text style={{ color: "white", fontWeight: "900" }}>
+                      {currentPlayer?.name}
+                    </Text>
+                  </Text>
+                </View>
+
+                <Pressable
+                  onPressIn={() => {
+                    setIsHoldingSecret(true);
+                    Vibration.vibrate(35);
+                  }}
+                  onPressOut={() => setIsHoldingSecret(false)}
+                  style={{
+                    flex: 1,
+                    marginVertical: 18,
+                    borderRadius: 26,
+                    backgroundColor: isHoldingSecret
+                      ? isImpostor
+                        ? "rgba(255,80,80,0.16)"
+                        : "rgba(85,255,153,0.14)"
+                      : "rgba(0,0,0,0.35)",
+                    borderWidth: 2,
+                    borderColor: isHoldingSecret
+                      ? isImpostor
+                        ? "rgba(255,80,80,0.85)"
+                        : "rgba(85,255,153,0.85)"
+                      : "rgba(255,255,255,0.14)",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    shadowColor: isHoldingSecret
+                      ? isImpostor
+                        ? "#ff4d4d"
+                        : "#55ff99"
+                      : "#000",
+                    shadowOpacity: 0.35,
+                    shadowRadius: 18,
+                    shadowOffset: { width: 0, height: 10 },
+                    elevation: 10,
+                  }}
+                >
+                  {isHoldingSecret ? (
+                    <View style={{ alignItems: "center" }}>
+                      <Text style={{ fontSize: 78, marginBottom: 18 }}>
+                        {isImpostor ? "🤫" : "🗺️"}
+                      </Text>
+
+                      <Text
+                        style={{
+                          fontSize: 34,
+                          fontWeight: "900",
+                          color: isImpostor ? "#ff6b6b" : "#55ff99",
+                          letterSpacing: 2,
+                        }}
+                      >
+                        {isImpostor ? "IMPOSTOR" : "TRIPULACIÓN"}
+                      </Text>
+
+                      {!isImpostor && (
+                        <View style={{ marginTop: 26, alignItems: "center" }}>
+                          <Text
+                            style={{
+                              color: "rgba(255,255,255,0.6)",
+                              fontSize: 12,
+                              textTransform: "uppercase",
+                              letterSpacing: 1.2,
+                            }}
+                          >
+                            Palabra secreta
+                          </Text>
+                          <Text
+                            style={{
+                              color: "white",
+                              fontSize: 40,
+                              fontWeight: "900",
+                              marginTop: 6,
+                              textAlign: "center",
+                            }}
+                          >
+                            {secret?.word}
+                          </Text>
+                          <Text
+                            style={{
+                              color: "rgba(255,255,255,0.55)",
+                              marginTop: 10,
+                            }}
+                          >
+                            Categoría: {secret?.category}
+                          </Text>
+                        </View>
+                      )}
+
+                      {isImpostor && (
+                        <Text
+                          style={{
+                            color: "rgba(255,140,140,0.9)",
+                            marginTop: 18,
+                            textAlign: "center",
+                            paddingHorizontal: 30,
+                            lineHeight: 20,
+                          }}
+                        >
+                          No sabes la palabra. Engaña a todos.
+                        </Text>
+                      )}
+                    </View>
+                  ) : (
+                    <View style={{ alignItems: "center", opacity: 0.85 }}>
+                      <Text style={{ fontSize: 58, marginBottom: 16 }}>👆</Text>
+                      <Text
+                        style={{
+                          color: "white",
+                          fontSize: 19,
+                          fontWeight: "900",
+                        }}
+                      >
+                        MANTÉN PRESIONADO
+                      </Text>
+                      <Text
+                        style={{
+                          color: "rgba(255,255,255,0.65)",
+                          marginTop: 8,
+                        }}
+                      >
+                        para ver tu rol
+                      </Text>
+                    </View>
+                  )}
+                </Pressable>
+
+                <View style={{ marginBottom: 10 }}>
+                  <Text
+                    style={{
+                      textAlign: "center",
+                      color: "rgba(255,255,255,0.35)",
+                      marginBottom: 12,
+                      fontSize: 12,
+                    }}
+                  >
+                    Suelta el dedo para ocultar la información al instante.
+                  </Text>
+                  <Btn
+                    label="YA LO VI, SIGUIENTE"
+                    onPress={nextReveal}
+                    variant="solid"
+                  />
+                </View>
+              </View>
+            )}
+
+            {/* DISCUSIÓN */}
+            {phase === "discussion" && (
+              <View
+                style={{
+                  flex: 1,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <BigTitle>DEBATE</BigTitle>
+                <Text
+                  style={{ color: "rgba(255,255,255,0.7)", marginBottom: 24 }}
+                >
+                  El tiempo corre. Descubran al mentiroso.
+                </Text>
+
+                <View
+                  style={{
+                    width: 220,
+                    height: 220,
+                    borderRadius: 110,
+                    borderWidth: 4,
+                    borderColor: discussionRunning
+                      ? "#3b82f6"
+                      : "rgba(255,255,255,0.18)",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    marginBottom: 30,
+                    backgroundColor: "rgba(0,0,0,0.25)",
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 70,
+                      fontWeight: "900",
+                      color: "white",
+                      fontVariant: ["tabular-nums"],
+                    }}
+                  >
+                    {discussionRunning ? timeLeft : "0"}
+                  </Text>
+                  <Text style={{ color: "rgba(255,255,255,0.5)" }}>
+                    segundos
+                  </Text>
+                </View>
+
+                <View
+                  style={{ flexDirection: "row", gap: 10, marginBottom: 18 }}
+                >
+                  <Btn
+                    label="60s"
+                    disabled={discussionRunning}
+                    onPress={() => {
+                      setDiscussionRunning(true);
+                      setDiscussionEndsAt(Date.now() + 61000);
+                    }}
+                    variant={discussionRunning ? "ghost" : "solid"}
+                  />
+                  <Btn
+                    label="120s"
+                    disabled={discussionRunning}
+                    onPress={() => {
+                      setDiscussionRunning(true);
+                      setDiscussionEndsAt(Date.now() + 121000);
+                    }}
+                    variant={discussionRunning ? "ghost" : "solid"}
+                  />
+                </View>
+
+                <View style={{ width: "100%", paddingHorizontal: 8 }}>
+                  <Btn
+                    label="VOTAR AHORA"
+                    onPress={() => {
+                      setVoteIndex(0);
+                      setPhase("vote_pass");
+                    }}
+                    variant="action"
+                  />
+                </View>
+              </View>
+            )}
+
+            {/* VOTACIÓN: PASO 1 */}
+            {phase === "vote_pass" && (
+              <View
+                style={{
+                  flex: 1,
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 16 }}>
+                  Turno de votar
+                </Text>
+                <BigTitle>{roundPlayers[voteIndex]?.name}</BigTitle>
+                <View style={{ height: 34 }} />
+                <Btn
+                  label="ABRIR VOTACIÓN"
+                  onPress={() => setPhase("vote_pick")}
+                  variant="action"
+                />
+              </View>
+            )}
+
+            {/* VOTACIÓN: PASO 2 */}
+            {phase === "vote_pick" && (
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    color: "rgba(255,255,255,0.7)",
+                    textAlign: "center",
+                    marginTop: 6,
+                  }}
+                >
+                  Votando como:{" "}
+                  <Text style={{ color: "white", fontWeight: "900" }}>
+                    {roundPlayers[voteIndex]?.name}
+                  </Text>
+                </Text>
+
+                <BigTitle>¿Quién es el impostor?</BigTitle>
+
+                <FlatList
+                  style={{ marginTop: 14 }}
+                  data={[
+                    ...roundPlayers.filter(
+                      (p) => p.id !== roundPlayers[voteIndex]?.id
+                    ),
+                    { id: "skip", name: "Salvar / No sé" },
+                  ]}
+                  keyExtractor={(item) => item.id}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      onPress={() => vote(item.id as any)}
+                      activeOpacity={0.8}
+                      style={{
+                        backgroundColor: "rgba(255,255,255,0.10)",
+                        padding: 18,
+                        marginBottom: 10,
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: "rgba(255,255,255,0.12)",
+                        flexDirection: "row",
+                        alignItems: "center",
+                      }}
+                    >
+                      <Text style={{ fontSize: 22, marginRight: 12 }}>
+                        {item.id === "skip" ? "🏳️" : "👉"}
+                      </Text>
+                      <Text
+                        style={{
+                          color: "white",
+                          fontSize: 18,
+                          fontWeight: "900",
+                        }}
+                      >
+                        {item.name}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                />
+              </View>
+            )}
+
+            {/* RESULTADOS */}
+            {phase === "results" &&
+              (() => {
+                const voteMap = new Map<string, number>();
+                votes.forEach((v) =>
+                  voteMap.set(v.targetId, (voteMap.get(v.targetId) || 0) + 1)
+                );
+
+                let topId: string | null = null;
+                let maxVotes = -1;
+                let tie = false;
+
+                voteMap.forEach((count, id) => {
+                  if (count > maxVotes) {
+                    maxVotes = count;
+                    topId = id;
+                    tie = false;
+                  } else if (count === maxVotes) tie = true;
+                });
+
+                const caught = !tie && topId === impostorId;
+                const skipped = topId === "skip";
+                const impostorName = roundPlayers.find(
+                  (p) => p.id === impostorId
+                )?.name;
+
+                return (
+                  <View
+                    style={{
+                      flex: 1,
+                      justifyContent: "center",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Text style={{ fontSize: 80, marginBottom: 10 }}>
+                      {caught ? "🎉" : "💀"}
+                    </Text>
+
+                    <BigTitle>
+                      {tie
+                        ? "EMPATE"
+                        : skipped
+                        ? "NADIE FUE EXPULSADO"
+                        : caught
+                        ? "IMPOSTOR ATRAPADO"
+                        : "INOCENTE EXPULSADO"}
+                    </BigTitle>
+
+                    <View
+                      style={{
+                        backgroundColor: caught
+                          ? "rgba(85,255,153,0.14)"
+                          : "rgba(255,80,80,0.16)",
+                        padding: 18,
+                        borderRadius: 20,
+                        width: "100%",
+                        alignItems: "center",
+                        marginVertical: 18,
+                        borderWidth: 1,
+                        borderColor: caught
+                          ? "rgba(85,255,153,0.35)"
+                          : "rgba(255,80,80,0.35)",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: "rgba(255,255,255,0.65)",
+                          fontWeight: "800",
+                        }}
+                      >
+                        El impostor era:
+                      </Text>
+                      <Text
+                        style={{
+                          color: "white",
+                          fontSize: 32,
+                          fontWeight: "900",
+                          marginTop: 6,
+                        }}
+                      >
+                        {impostorName || "—"}
+                      </Text>
+                    </View>
+
+                    <Text
+                      style={{ color: "rgba(255,255,255,0.75)", fontSize: 15 }}
+                    >
+                      Palabra secreta:{" "}
+                      <Text style={{ color: "white", fontWeight: "900" }}>
+                        {secret?.word}
+                      </Text>
+                    </Text>
+
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        gap: 10,
+                        marginTop: 26,
+                        width: "100%",
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Btn
+                          label="Inicio"
+                          onPress={() => setPhase("home")}
+                          variant="ghost"
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Btn
+                          label="Jugar Otra Vez"
+                          onPress={startNewRound}
+                          variant="action"
+                        />
+                      </View>
+                    </View>
+                  </View>
+                );
+              })()}
+          </View>
+        </SafeAreaView>
+      </ScreenBackground>
     </View>
   );
 }
-

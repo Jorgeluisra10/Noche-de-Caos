@@ -9,17 +9,31 @@ import {
   Pressable,
   ScrollView,
   Switch,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+
 import ScreenBackground from "../components/ScreenBackground";
 import { useSettings } from "../context/SettingsContext";
+import { usePremium } from "../premium/PremiumContext";
 
 const TERMS_KEY = "@noche_terms_v1";
 
 export default function HomeScreen({ navigation }: any) {
   const { state, setLanguage, setMusicEnabled, setMusicVolume } = useSettings();
+  const {
+    isPremium,
+    loading,
+    purchaseMonthly,
+    purchaseYearly,
+    restore,
+    devTogglePremium,
+  } = usePremium();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
+  const [premiumOpen, setPremiumOpen] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
 
   useEffect(() => {
@@ -49,8 +63,30 @@ export default function HomeScreen({ navigation }: any) {
       terms: "Términos y condiciones",
       close: "Cerrar",
       accepted: "Aceptados",
+      pending: "Pendientes",
       accept: "Aceptar",
+      mustAcceptTitle: "Términos pendientes",
+      mustAcceptDesc:
+        "Debes aceptar los términos y condiciones para continuar.",
+
+      premium: "Premium",
+      goPremium: "Volverse Premium",
+      premiumSubtitle: "Desbloquea categorías PRO y futuras modalidades.",
+      premiumActive: "Premium activo",
+      premiumCTA: "Desbloquear ahora",
+      premiumMonthly: "Mensual",
+      premiumYearly: "Anual",
+      bestValue: "Mejor precio",
+      restore: "Restaurar",
+      processing: "Procesando...",
+      featuresTitle: "Qué obtienes",
+      f1: "✅ Desbloqueas categorías PRO",
+      f2: "✅ Palabras personalizadas",
+      f3: "✅ Fondos premium (próximamente)",
+      f4: "✅ Modos extra (próximamente)",
+      dev: "DEV: Alternar Premium",
     };
+
     const en = {
       subtitle: "The ultimate party collection.",
       popular: "POPULAR",
@@ -66,8 +102,29 @@ export default function HomeScreen({ navigation }: any) {
       terms: "Terms & conditions",
       close: "Close",
       accepted: "Accepted",
+      pending: "Pending",
       accept: "Accept",
+      mustAcceptTitle: "Terms required",
+      mustAcceptDesc: "You must accept the terms & conditions to continue.",
+
+      premium: "Premium",
+      goPremium: "Go Premium",
+      premiumSubtitle: "Unlock PRO categories and upcoming modes.",
+      premiumActive: "Premium active",
+      premiumCTA: "Unlock now",
+      premiumMonthly: "Monthly",
+      premiumYearly: "Yearly",
+      bestValue: "Best value",
+      restore: "Restore",
+      processing: "Processing...",
+      featuresTitle: "What you get",
+      f1: "✅ Unlock PRO categories",
+      f2: "✅ Custom words",
+      f3: "✅ Premium backgrounds (soon)",
+      f4: "✅ Extra modes (soon)",
+      dev: "DEV: Toggle Premium",
     };
+
     return state.language === "en" ? en : es;
   }, [state.language]);
 
@@ -91,33 +148,107 @@ export default function HomeScreen({ navigation }: any) {
     }
   };
 
+  const goImpostor = () => {
+    if (!termsAccepted) {
+      Alert.alert(copy.mustAcceptTitle, copy.mustAcceptDesc, [
+        { text: "OK", onPress: () => setTermsOpen(true) },
+      ]);
+      setSettingsOpen(true);
+      setTermsOpen(true);
+      return;
+    }
+    navigation.navigate("Impostor");
+  };
+
+  const openPremium = () => {
+    setSettingsOpen(false);
+    setPremiumOpen(true);
+  };
+
+  const handleBuyMonthly = async () => {
+    try {
+      await purchaseMonthly();
+      setPremiumOpen(false);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message || "No se pudo completar la compra.");
+    }
+  };
+
+  const handleBuyYearly = async () => {
+    try {
+      await purchaseYearly();
+      setPremiumOpen(false);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message || "No se pudo completar la compra.");
+    }
+  };
+
+  const handleRestore = async () => {
+    try {
+      await restore();
+    } catch (e: any) {
+      Alert.alert("Error", e?.message || "No se pudo restaurar.");
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       <StatusBar barStyle="light-content" />
 
       <ScreenBackground>
         <SafeAreaView style={{ flex: 1 }}>
-          {/* Top bar */}
+          {/* TOP BAR (bajado) */}
           <View
             style={{
               paddingHorizontal: 18,
-              paddingTop: 8,
-              paddingBottom: 6,
+              paddingTop: 18,
+              paddingBottom: 10,
               flexDirection: "row",
               alignItems: "center",
               justifyContent: "space-between",
             }}
           >
             <View style={{ width: 44, height: 44 }} />
-            <Text
-              style={{
-                color: "rgba(255,255,255,0.85)",
-                fontWeight: "900",
-                letterSpacing: 1,
-              }}
-            >
-              NOCHE DE CAOS
-            </Text>
+
+            <View style={{ alignItems: "center" }}>
+              <Text
+                style={{
+                  color: "rgba(255,255,255,0.85)",
+                  fontWeight: "900",
+                  letterSpacing: 1,
+                }}
+              >
+                NOCHE DE CAOS
+              </Text>
+
+              <View
+                style={{
+                  marginTop: 6,
+                  paddingHorizontal: 10,
+                  paddingVertical: 4,
+                  borderRadius: 999,
+                  backgroundColor: isPremium
+                    ? "rgba(85,255,153,0.14)"
+                    : "rgba(255,255,255,0.06)",
+                  borderWidth: 1,
+                  borderColor: isPremium
+                    ? "rgba(85,255,153,0.35)"
+                    : "rgba(255,255,255,0.12)",
+                }}
+              >
+                <Text
+                  style={{
+                    color: isPremium ? "#55ff99" : "rgba(255,255,255,0.65)",
+                    fontWeight: "900",
+                    fontSize: 12,
+                  }}
+                >
+                  {isPremium
+                    ? `👑 ${copy.premiumActive}`
+                    : `✨ ${copy.premium}`}
+                </Text>
+              </View>
+            </View>
 
             <Pressable
               onPress={() => setSettingsOpen(true)}
@@ -131,6 +262,7 @@ export default function HomeScreen({ navigation }: any) {
                   borderColor: "rgba(255,255,255,0.12)",
                   alignItems: "center",
                   justifyContent: "center",
+                  marginTop: 2,
                 },
                 pressed && { opacity: 0.7 },
               ]}
@@ -142,8 +274,8 @@ export default function HomeScreen({ navigation }: any) {
           </View>
 
           <View style={{ flex: 1, padding: 24, justifyContent: "center" }}>
-            {/* Header */}
-            <View style={{ marginBottom: 44 }}>
+            {/* HEADER */}
+            <View style={{ marginBottom: 28 }}>
               <Text
                 style={{
                   fontSize: 52,
@@ -185,11 +317,97 @@ export default function HomeScreen({ navigation }: any) {
               </Text>
             </View>
 
-            {/* Cards */}
+            {/* PREMIUM BUTTON (solo si no es premium) */}
+            {!isPremium && (
+              <Pressable
+                onPress={openPremium}
+                style={({ pressed }) => [
+                  {
+                    marginBottom: 16,
+                    borderRadius: 22,
+                    overflow: "hidden",
+                    borderWidth: 1,
+                    borderColor: "rgba(255,255,255,0.16)",
+                    shadowColor: "#c832ff",
+                    shadowOpacity: 0.25,
+                    shadowRadius: 18,
+                    shadowOffset: { width: 0, height: 10 },
+                    elevation: 10,
+                    transform: [{ scale: pressed ? 0.99 : 1 }],
+                  },
+                ]}
+              >
+                <LinearGradient
+                  colors={[
+                    "rgba(200,50,255,0.38)",
+                    "rgba(59,130,246,0.22)",
+                    "rgba(255,255,255,0.06)",
+                  ]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{ padding: 18, borderRadius: 22 }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <View
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 18,
+                        backgroundColor: "rgba(0,0,0,0.25)",
+                        borderWidth: 1,
+                        borderColor: "rgba(255,255,255,0.14)",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        marginRight: 14,
+                      }}
+                    >
+                      <Text style={{ fontSize: 22 }}>👑</Text>
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{
+                          color: "#fff",
+                          fontWeight: "900",
+                          fontSize: 18,
+                        }}
+                      >
+                        {copy.goPremium}
+                      </Text>
+                      <Text
+                        style={{
+                          color: "rgba(255,255,255,0.75)",
+                          marginTop: 4,
+                          lineHeight: 18,
+                        }}
+                      >
+                        {copy.premiumSubtitle}
+                      </Text>
+                    </View>
+
+                    <View
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 14,
+                        backgroundColor: "rgba(0,0,0,0.25)",
+                        borderWidth: 1,
+                        borderColor: "rgba(255,255,255,0.14)",
+                      }}
+                    >
+                      <Text style={{ color: "#fff", fontWeight: "900" }}>
+                        {copy.premiumCTA}
+                      </Text>
+                    </View>
+                  </View>
+                </LinearGradient>
+              </Pressable>
+            )}
+
+            {/* CARDS */}
             <View>
-              {/* Impostor */}
               <TouchableOpacity
-                onPress={() => navigation.navigate("Impostor")}
+                onPress={goImpostor}
                 activeOpacity={0.85}
                 style={{
                   backgroundColor: "rgba(59, 130, 246, 0.16)",
@@ -230,11 +448,22 @@ export default function HomeScreen({ navigation }: any) {
                   >
                     {copy.impostorDesc}
                   </Text>
+
+                  {!termsAccepted && (
+                    <Text
+                      style={{
+                        marginTop: 10,
+                        color: "rgba(255,255,255,0.65)",
+                        fontWeight: "800",
+                      }}
+                    >
+                      ⚠️ {copy.pending}: {copy.terms}
+                    </Text>
+                  )}
                 </View>
                 <Text style={{ fontSize: 42 }}>🕵️</Text>
               </TouchableOpacity>
 
-              {/* Coming soon */}
               <TouchableOpacity
                 disabled
                 activeOpacity={1}
@@ -357,6 +586,7 @@ export default function HomeScreen({ navigation }: any) {
                 >
                   {copy.settingsTitle}
                 </Text>
+
                 <Pressable
                   onPress={() => setSettingsOpen(false)}
                   style={({ pressed }) => [
@@ -376,13 +606,72 @@ export default function HomeScreen({ navigation }: any) {
               </View>
 
               <ScrollView
-                style={{ maxHeight: 420 }}
+                style={{ maxHeight: 460 }}
                 showsVerticalScrollIndicator={false}
               >
+                {/* Premium inside settings */}
+                <Pressable
+                  onPress={openPremium}
+                  disabled={isPremium}
+                  style={({ pressed }) => [
+                    {
+                      marginTop: 14,
+                      borderRadius: 18,
+                      overflow: "hidden",
+                      borderWidth: 1,
+                      borderColor: isPremium
+                        ? "rgba(85,255,153,0.25)"
+                        : "rgba(255,255,255,0.12)",
+                      opacity: isPremium ? 0.7 : 1,
+                    },
+                    pressed && !isPremium && { opacity: 0.9 },
+                  ]}
+                >
+                  <LinearGradient
+                    colors={
+                      isPremium
+                        ? ["rgba(85,255,153,0.16)", "rgba(255,255,255,0.06)"]
+                        : ["rgba(200,50,255,0.26)", "rgba(59,130,246,0.18)"]
+                    }
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{ padding: 14 }}
+                  >
+                    <View
+                      style={{ flexDirection: "row", alignItems: "center" }}
+                    >
+                      <Text style={{ fontSize: 18, marginRight: 10 }}>
+                        {isPremium ? "👑" : "✨"}
+                      </Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: "#fff", fontWeight: "900" }}>
+                          {isPremium ? copy.premiumActive : copy.goPremium}
+                        </Text>
+                        <Text
+                          style={{
+                            color: "rgba(255,255,255,0.7)",
+                            marginTop: 4,
+                          }}
+                        >
+                          {isPremium ? copy.f1 : copy.premiumSubtitle}
+                        </Text>
+                      </View>
+                      <Text
+                        style={{
+                          color: "rgba(255,255,255,0.75)",
+                          fontWeight: "900",
+                        }}
+                      >
+                        {isPremium ? "✓" : "›"}
+                      </Text>
+                    </View>
+                  </LinearGradient>
+                </Pressable>
+
                 {/* Language */}
                 <View
                   style={{
-                    marginTop: 16,
+                    marginTop: 12,
                     padding: 14,
                     borderRadius: 18,
                     backgroundColor: "rgba(255,255,255,0.06)",
@@ -584,7 +873,9 @@ export default function HomeScreen({ navigation }: any) {
                     <Text
                       style={{ color: "rgba(255,255,255,0.55)", marginTop: 6 }}
                     >
-                      {termsAccepted ? `✅ ${copy.accepted}` : "⚠️ Pendientes"}
+                      {termsAccepted
+                        ? `✅ ${copy.accepted}`
+                        : `⚠️ ${copy.pending}`}
                     </Text>
                   </View>
 
@@ -598,8 +889,251 @@ export default function HomeScreen({ navigation }: any) {
                   </Text>
                 </Pressable>
 
+                {/* Dev toggle */}
+                {__DEV__ && (
+                  <Pressable
+                    onPress={devTogglePremium}
+                    style={({ pressed }) => [
+                      {
+                        marginTop: 12,
+                        padding: 14,
+                        borderRadius: 18,
+                        backgroundColor: "rgba(255,255,255,0.06)",
+                        borderWidth: 1,
+                        borderColor: "rgba(255,255,255,0.10)",
+                        flexDirection: "row",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      },
+                      pressed && { opacity: 0.85 },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color: "rgba(255,255,255,0.85)",
+                        fontWeight: "900",
+                      }}
+                    >
+                      {copy.dev}
+                    </Text>
+                    <Text
+                      style={{
+                        color: "rgba(255,255,255,0.7)",
+                        fontWeight: "900",
+                      }}
+                    >
+                      {isPremium ? "ON" : "OFF"}
+                    </Text>
+                  </Pressable>
+                )}
+
                 <View style={{ height: 10 }} />
               </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* PREMIUM MODAL */}
+        <Modal
+          visible={premiumOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPremiumOpen(false)}
+        >
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: "rgba(0,0,0,0.82)",
+              justifyContent: "center",
+              padding: 18,
+            }}
+          >
+            <View
+              style={{
+                borderRadius: 24,
+                overflow: "hidden",
+                borderWidth: 1,
+                borderColor: "rgba(255,255,255,0.12)",
+                backgroundColor: "rgba(12,12,16,0.98)",
+              }}
+            >
+              <LinearGradient
+                colors={[
+                  "rgba(200,50,255,0.25)",
+                  "rgba(59,130,246,0.16)",
+                  "rgba(0,0,0,0)",
+                ]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={{ padding: 16 }}
+              >
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <Text style={{ fontSize: 22, marginRight: 10 }}>👑</Text>
+                    <Text
+                      style={{ color: "#fff", fontSize: 18, fontWeight: "900" }}
+                    >
+                      {copy.goPremium}
+                    </Text>
+                  </View>
+
+                  <Pressable
+                    onPress={() => setPremiumOpen(false)}
+                    style={({ pressed }) => [
+                      {
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 14,
+                        backgroundColor: "rgba(255,255,255,0.08)",
+                        borderWidth: 1,
+                        borderColor: "rgba(255,255,255,0.12)",
+                      },
+                      pressed && { opacity: 0.8 },
+                    ]}
+                  >
+                    <Text style={{ color: "#fff", fontWeight: "900" }}>
+                      {copy.close}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                <View style={{ marginTop: 12 }}>
+                  <View
+                    style={{
+                      padding: 14,
+                      borderRadius: 18,
+                      backgroundColor: "rgba(255,255,255,0.06)",
+                      borderWidth: 1,
+                      borderColor: "rgba(255,255,255,0.10)",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: "#fff",
+                        fontWeight: "900",
+                        marginBottom: 10,
+                      }}
+                    >
+                      {copy.featuresTitle}
+                    </Text>
+                    <Text
+                      style={{
+                        color: "rgba(255,255,255,0.78)",
+                        lineHeight: 22,
+                      }}
+                    >
+                      {copy.f1}
+                      {"\n"}
+                      {copy.f2}
+                      {"\n"}
+                      {copy.f3}
+                      {"\n"}
+                      {copy.f4}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={{ marginTop: 14 }}>
+                  <View style={{ flexDirection: "row", gap: 10 }}>
+                    <Pressable
+                      onPress={handleBuyMonthly}
+                      disabled={loading}
+                      style={({ pressed }) => [
+                        {
+                          flex: 1,
+                          paddingVertical: 12,
+                          borderRadius: 16,
+                          alignItems: "center",
+                          backgroundColor: "rgba(255,255,255,0.08)",
+                          borderWidth: 1,
+                          borderColor: "rgba(255,255,255,0.12)",
+                          opacity: loading ? 0.6 : 1,
+                        },
+                        pressed && !loading && { opacity: 0.85 },
+                      ]}
+                    >
+                      <Text style={{ color: "#fff", fontWeight: "900" }}>
+                        {copy.premiumMonthly}
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      onPress={handleBuyYearly}
+                      disabled={loading}
+                      style={({ pressed }) => [
+                        {
+                          flex: 1,
+                          paddingVertical: 12,
+                          borderRadius: 16,
+                          alignItems: "center",
+                          backgroundColor: "rgba(59,130,246,0.28)",
+                          borderWidth: 1,
+                          borderColor: "rgba(59,130,246,0.55)",
+                          opacity: loading ? 0.6 : 1,
+                        },
+                        pressed && !loading && { opacity: 0.85 },
+                      ]}
+                    >
+                      <Text style={{ color: "#fff", fontWeight: "900" }}>
+                        {copy.premiumYearly} · {copy.bestValue}
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  <Pressable
+                    onPress={handleRestore}
+                    disabled={loading}
+                    style={({ pressed }) => [
+                      {
+                        marginTop: 10,
+                        paddingVertical: 12,
+                        borderRadius: 16,
+                        alignItems: "center",
+                        backgroundColor: "rgba(0,0,0,0.25)",
+                        borderWidth: 1,
+                        borderColor: "rgba(255,255,255,0.12)",
+                        opacity: loading ? 0.6 : 1,
+                      },
+                      pressed && !loading && { opacity: 0.85 },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color: "rgba(255,255,255,0.85)",
+                        fontWeight: "900",
+                      }}
+                    >
+                      {copy.restore}
+                    </Text>
+                  </Pressable>
+
+                  {loading && (
+                    <View
+                      style={{
+                        marginTop: 12,
+                        flexDirection: "row",
+                        alignItems: "center",
+                      }}
+                    >
+                      <ActivityIndicator />
+                      <Text
+                        style={{
+                          color: "rgba(255,255,255,0.7)",
+                          marginLeft: 10,
+                        }}
+                      >
+                        {copy.processing}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </LinearGradient>
             </View>
           </View>
         </Modal>

@@ -11,10 +11,16 @@ import { Audio } from "expo-av";
 import type { Lang } from "../i18n/strings";
 import { STRINGS } from "../i18n/strings";
 
+export type BackgroundId =
+  | "bg_home_image"
+  | "bg_chaos_gradient"
+  | "bg_midnight";
+
 type SettingsState = {
   language: Lang;
   musicEnabled: boolean;
   musicVolume: number; // 0..1
+  backgroundId: BackgroundId;
 };
 
 type SettingsContextValue = {
@@ -22,19 +28,21 @@ type SettingsContextValue = {
   setLanguage: (lang: Lang) => void;
   setMusicEnabled: (enabled: boolean) => void;
   setMusicVolume: (volume: number) => void;
+  setBackgroundId: (id: BackgroundId) => void;
   t: (key: string) => string;
 };
 
-const STORAGE_KEY = "@noche_settings_v1";
+const STORAGE_KEY = "@noche_settings_v2";
+
+// ✅ Ajusta esta ruta si cambias el nombre o ubicación del mp3
+const BG_MUSIC = require("../../assets/audio/bg-music.mp3");
 
 const DEFAULTS: SettingsState = {
   language: "es",
   musicEnabled: true,
   musicVolume: 0.6,
+  backgroundId: "bg_home_image",
 };
-
-// ✅ Ajusta esta ruta si cambias el nombre o ubicación del mp3
-const BG_MUSIC = require("../../assets/audio/bg-music.mp3");
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
@@ -51,13 +59,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         const raw = await AsyncStorage.getItem(STORAGE_KEY);
         if (raw) {
           const parsed = JSON.parse(raw) as Partial<SettingsState>;
-          setState((prev) => ({
-            ...prev,
-            ...parsed,
-          }));
+          setState((prev) => ({ ...prev, ...parsed }));
         }
       } catch {
-        // si falla, usamos defaults
+        // defaults
       }
     })();
   }, []);
@@ -79,14 +84,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       playThroughEarpieceAndroid: false,
     };
 
-    // ✅ iOS interruption mode (según versión)
     if (A?.InterruptionModeIOS?.DuckOthers != null) {
       mode.interruptionModeIOS = A.InterruptionModeIOS.DuckOthers;
     } else if (A?.INTERRUPTION_MODE_IOS_DUCK_OTHERS != null) {
       mode.interruptionModeIOS = A.INTERRUPTION_MODE_IOS_DUCK_OTHERS;
     }
 
-    // ✅ Android interruption mode (según versión)
     if (A?.InterruptionModeAndroid?.DuckOthers != null) {
       mode.interruptionModeAndroid = A.InterruptionModeAndroid.DuckOthers;
     } else if (A?.INTERRUPTION_MODE_ANDROID_DUCK_OTHERS != null) {
@@ -103,7 +106,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       loadingRef.current = true;
 
       try {
-        // If disabled => stop/unload
         if (!state.musicEnabled) {
           if (soundRef.current) {
             try {
@@ -117,7 +119,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // Enabled => ensure loaded and playing
         if (!soundRef.current) {
           const { sound } = await Audio.Sound.createAsync(BG_MUSIC, {
             isLooping: true,
@@ -133,7 +134,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           }
         }
       } catch {
-        // si falla audio, no rompemos la app
+        // no rompemos la app
       } finally {
         loadingRef.current = false;
       }
@@ -160,6 +161,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           ...p,
           musicVolume: Math.max(0, Math.min(1, musicVolume)),
         })),
+      setBackgroundId: (backgroundId) =>
+        setState((p) => ({ ...p, backgroundId })),
       t: (key) => STRINGS[state.language]?.[key] ?? STRINGS.es[key] ?? key,
     };
   }, [state]);

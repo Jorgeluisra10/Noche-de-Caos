@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   SafeAreaView,
   View,
@@ -15,9 +15,11 @@ import {
   Alert,
   TouchableOpacity,
   Pressable,
+  ScrollView,
 } from "react-native";
 
 import ScreenBackground from "../components/ScreenBackground";
+import { useSettings } from "../context/SettingsContext";
 
 /* ===================== Configuración (LayoutAnimation Android) ===================== */
 if (
@@ -39,39 +41,121 @@ type Phase =
   | "results";
 
 type Player = { id: string; name: string };
-type Word = { category: string; word: string };
+
+type Tier = "free" | "pro";
+type CategoryId =
+  | "food"
+  | "places"
+  | "animals"
+  | "objects"
+  | "jobs"
+  | "transport"
+  | "movies"
+  | "sports"
+  | "music"
+  | "tech";
+
+type Category = {
+  id: CategoryId;
+  label: string;
+  emoji: string;
+  tier: Tier;
+};
+
+type Word = { categoryId: CategoryId; word: string };
 type VoteChoice = { voterId: string; targetId: string | "skip" };
 
-/* ===================== Banco de Palabras ===================== */
+/* ===================== Categorías (10) | 5 FREE + 5 PRO ===================== */
+const CATEGORIES: Category[] = [
+  { id: "food", label: "Comida", emoji: "🍔", tier: "free" },
+  { id: "places", label: "Lugar", emoji: "🏥", tier: "free" },
+  { id: "animals", label: "Animal", emoji: "🦈", tier: "free" },
+  { id: "objects", label: "Objeto", emoji: "🪞", tier: "free" },
+  { id: "jobs", label: "Profesión", emoji: "🧑‍🚀", tier: "free" },
+
+  { id: "transport", label: "Transporte", emoji: "✈️", tier: "pro" },
+  { id: "movies", label: "Cine", emoji: "🎬", tier: "pro" },
+  { id: "sports", label: "Deportes", emoji: "⚽", tier: "pro" },
+  { id: "music", label: "Música", emoji: "🎵", tier: "pro" },
+  { id: "tech", label: "Tecnología", emoji: "💻", tier: "pro" },
+];
+
+const CAT_MAP = new Map<CategoryId, Category>(
+  CATEGORIES.map((c) => [c.id, c] as const)
+);
+
+const FREE_DEFAULT: CategoryId[] = CATEGORIES.filter(
+  (c) => c.tier === "free"
+).map((c) => c.id);
+
+/* ===================== Banco de Palabras (respeta categoryId) ===================== */
 const WORD_BANK: Word[] = [
-  { category: "Comida", word: "Hamburguesa" },
-  { category: "Comida", word: "Sushi" },
-  { category: "Comida", word: "Pizza" },
-  { category: "Comida", word: "Tacos" },
-  { category: "Lugar", word: "Hospital" },
-  { category: "Lugar", word: "Cementerio" },
-  { category: "Lugar", word: "Escuela" },
-  { category: "Lugar", word: "Cine" },
-  { category: "Animal", word: "Jirafa" },
-  { category: "Animal", word: "Pingüino" },
-  { category: "Animal", word: "Tiburón" },
-  { category: "Animal", word: "Elefante" },
-  { category: "Objeto", word: "Paraguas" },
-  { category: "Objeto", word: "Espejo" },
-  { category: "Profesión", word: "Astronauta" },
-  { category: "Profesión", word: "Bombero" },
-  { category: "Profesión", word: "Payaso" },
-  { category: "Profesión", word: "Cirujano" },
-  { category: "Transporte", word: "Submarino" },
-  { category: "Transporte", word: "Avión" },
-  { category: "Cine", word: "Titanic" },
-  { category: "Cine", word: "Harry Potter" },
+  // FREE - Comida
+  { categoryId: "food", word: "Hamburguesa" },
+  { categoryId: "food", word: "Sushi" },
+  { categoryId: "food", word: "Pizza" },
+  { categoryId: "food", word: "Tacos" },
+
+  // FREE - Lugar
+  { categoryId: "places", word: "Hospital" },
+  { categoryId: "places", word: "Cementerio" },
+  { categoryId: "places", word: "Escuela" },
+  { categoryId: "places", word: "Cine" },
+
+  // FREE - Animal
+  { categoryId: "animals", word: "Jirafa" },
+  { categoryId: "animals", word: "Pingüino" },
+  { categoryId: "animals", word: "Tiburón" },
+  { categoryId: "animals", word: "Elefante" },
+
+  // FREE - Objeto
+  { categoryId: "objects", word: "Paraguas" },
+  { categoryId: "objects", word: "Espejo" },
+  { categoryId: "objects", word: "Linterna" },
+  { categoryId: "objects", word: "Candado" },
+
+  // FREE - Profesión
+  { categoryId: "jobs", word: "Astronauta" },
+  { categoryId: "jobs", word: "Bombero" },
+  { categoryId: "jobs", word: "Payaso" },
+  { categoryId: "jobs", word: "Cirujano" },
+
+  // PRO - Transporte
+  { categoryId: "transport", word: "Submarino" },
+  { categoryId: "transport", word: "Avión" },
+  { categoryId: "transport", word: "Tren bala" },
+  { categoryId: "transport", word: "Helicóptero" },
+
+  // PRO - Cine
+  { categoryId: "movies", word: "Titanic" },
+  { categoryId: "movies", word: "Harry Potter" },
+  { categoryId: "movies", word: "Matrix" },
+  { categoryId: "movies", word: "El Padrino" },
+
+  // PRO - Deportes
+  { categoryId: "sports", word: "Maratón" },
+  { categoryId: "sports", word: "Boxeo" },
+  { categoryId: "sports", word: "Fútbol" },
+  { categoryId: "sports", word: "NBA" },
+
+  // PRO - Música
+  { categoryId: "music", word: "Reggaetón" },
+  { categoryId: "music", word: "Rock" },
+  { categoryId: "music", word: "Concierto" },
+  { categoryId: "music", word: "DJ" },
+
+  // PRO - Tecnología
+  { categoryId: "tech", word: "Inteligencia Artificial" },
+  { categoryId: "tech", word: "Robots" },
+  { categoryId: "tech", word: "iPhone" },
+  { categoryId: "tech", word: "Criptomonedas" },
 ];
 
 /* ===================== Utilidades ===================== */
 function uid() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
+
 function shuffle<T>(arr: T[]) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -80,11 +164,21 @@ function shuffle<T>(arr: T[]) {
   }
   return a;
 }
-function pickRandomWord(): Word {
-  return WORD_BANK[Math.floor(Math.random() * WORD_BANK.length)];
-}
+
 function sanitizeName(s: string) {
   return s.trim().replace(/\s+/g, " ").slice(0, 18);
+}
+
+function categoryLabel(id: CategoryId) {
+  return CAT_MAP.get(id)?.label || "General";
+}
+
+function pickRandomWord(allowedCategories: CategoryId[]): Word {
+  const filtered = WORD_BANK.filter((w) =>
+    allowedCategories.includes(w.categoryId)
+  );
+  const pool = filtered.length ? filtered : WORD_BANK;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 /* ===================== Componentes UI ===================== */
@@ -181,6 +275,11 @@ function BigTitle({ children }: { children: React.ReactNode }) {
 
 /* ===================== Pantalla ===================== */
 export default function ImpostorGame({ navigation }: any) {
+  const { state } = useSettings();
+
+  // PRO flag (no rompe si no existe)
+  const isPro = !!(state as any)?.isPro || (state as any)?.plan === "pro";
+
   const [phase, setPhase] = useState<Phase>("home");
 
   // Datos
@@ -189,15 +288,34 @@ export default function ImpostorGame({ navigation }: any) {
     { id: uid(), name: "Jugador 2" },
     { id: uid(), name: "Jugador 3" },
   ]);
+
   const [newName, setNewName] = useState("");
   const [customWord, setCustomWord] = useState("");
   const [customCategory, setCustomCategory] = useState("");
   const [useCustomWord, setUseCustomWord] = useState(false);
 
+  // Categorías seleccionadas (por defecto: FREE)
+  const [selectedCategories, setSelectedCategories] =
+    useState<CategoryId[]>(FREE_DEFAULT);
+
+  const allowedCategories = useMemo(() => {
+    if (isPro)
+      return selectedCategories.length
+        ? selectedCategories
+        : (CATEGORIES.map((c) => c.id) as CategoryId[]);
+    // FREE: filtra cualquier PRO por seguridad
+    const onlyFree = selectedCategories.filter(
+      (id) => (CAT_MAP.get(id)?.tier || "free") === "free"
+    );
+    return onlyFree.length ? onlyFree : FREE_DEFAULT;
+  }, [isPro, selectedCategories]);
+
   // Ronda
   const [roundPlayers, setRoundPlayers] = useState<Player[]>([]);
   const [impostorId, setImpostorId] = useState<string>("");
-  const [secret, setSecret] = useState<Word | null>(null);
+  const [secret, setSecret] = useState<
+    Word | { category: string; word: string } | null
+  >(null);
 
   // Índices
   const [revealIndex, setRevealIndex] = useState(0);
@@ -217,7 +335,6 @@ export default function ImpostorGame({ navigation }: any) {
     if (Platform.OS !== "android") return;
 
     const backAction = () => {
-      // Si estás en el home interno del juego, deja que vuelva a la pantalla anterior (HomeScreen)
       if (phase === "home") return false;
 
       Alert.alert("¿Salir?", "Se perderá el progreso de esta ronda.", [
@@ -272,12 +389,12 @@ export default function ImpostorGame({ navigation }: any) {
     const rp = shuffle([...players]);
     const imp = rp[Math.floor(Math.random() * rp.length)].id;
 
-    const w: Word = useCustomWord
+    const w = useCustomWord
       ? {
           category: (customCategory.trim() || "General").slice(0, 18),
           word: (customWord.trim() || "Secreto").slice(0, 28),
         }
-      : pickRandomWord();
+      : pickRandomWord(allowedCategories);
 
     setRoundPlayers(rp);
     setImpostorId(imp);
@@ -331,9 +448,47 @@ export default function ImpostorGame({ navigation }: any) {
     }
   };
 
+  const toggleCategory = (id: CategoryId) => {
+    const cat = CAT_MAP.get(id);
+    if (!cat) return;
+
+    if (cat.tier === "pro" && !isPro) {
+      Alert.alert(
+        "Categoría PRO",
+        "Esta categoría es exclusiva para usuarios PRO."
+      );
+      return;
+    }
+
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSelectedCategories((prev) => {
+      const exists = prev.includes(id);
+      if (exists) return prev.filter((c) => c !== id);
+      return [...prev, id];
+    });
+  };
+
+  const selectAllAllowed = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (isPro) setSelectedCategories(CATEGORIES.map((c) => c.id));
+    else setSelectedCategories(FREE_DEFAULT);
+  };
+
+  const clearCategories = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSelectedCategories([]);
+  };
+
   /* ===================== Revelación ===================== */
   const currentPlayer = roundPlayers[revealIndex];
   const isImpostor = currentPlayer?.id === impostorId;
+
+  const secretWord = secret && "word" in secret ? secret.word : "";
+  const secretCategory = secret
+    ? "categoryId" in secret
+      ? categoryLabel(secret.categoryId)
+      : (secret as any).category
+    : "";
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
@@ -342,7 +497,6 @@ export default function ImpostorGame({ navigation }: any) {
       <ScreenBackground>
         <SafeAreaView style={{ flex: 1 }}>
           <View style={{ flex: 1, padding: 20 }}>
-            {/* Barra superior (salir + ajustes) */}
             {/* Barra superior (salir) */}
             <View
               style={{
@@ -435,6 +589,17 @@ export default function ImpostorGame({ navigation }: any) {
                     variant="solid"
                   />
                 </GlassCard>
+
+                <Text
+                  style={{
+                    marginTop: 14,
+                    textAlign: "center",
+                    color: "rgba(255,255,255,0.45)",
+                    fontWeight: "800",
+                  }}
+                >
+                  Plan: {isPro ? "PRO ✅" : "FREE"}
+                </Text>
               </View>
             )}
 
@@ -455,9 +620,7 @@ export default function ImpostorGame({ navigation }: any) {
                   Jugadores ({players.length})
                 </Text>
 
-                <View
-                  style={{ flexDirection: "row", gap: 10, marginBottom: 16 }}
-                >
+                <View style={{ flexDirection: "row", marginBottom: 16 }}>
                   <TextInput
                     value={newName}
                     onChangeText={setNewName}
@@ -471,6 +634,7 @@ export default function ImpostorGame({ navigation }: any) {
                       padding: 14,
                       borderWidth: 1,
                       borderColor: "rgba(255,255,255,0.12)",
+                      marginRight: 10,
                     }}
                   />
                   <Btn
@@ -484,6 +648,7 @@ export default function ImpostorGame({ navigation }: any) {
                 <FlatList
                   data={players}
                   keyExtractor={(item) => item.id}
+                  style={{ marginBottom: 10 }}
                   renderItem={({ item }) => (
                     <View
                       style={{
@@ -519,66 +684,171 @@ export default function ImpostorGame({ navigation }: any) {
                   )}
                 />
 
-                <View style={{ gap: 10, marginTop: 10 }}>
-                  <Btn
-                    label={
-                      useCustomWord ? "Palabra: Manual" : "Palabra: Aleatoria"
-                    }
-                    onPress={() => setUseCustomWord((v) => !v)}
-                    variant="ghost"
-                  />
-
-                  {useCustomWord && (
-                    <View style={{ gap: 10 }}>
-                      <TextInput
-                        placeholder="Categoría (ej: Lugar, Comida...)"
-                        value={customCategory}
-                        onChangeText={setCustomCategory}
-                        placeholderTextColor="#777"
+                {/* Selector de Categorías */}
+                {!useCustomWord && (
+                  <GlassCard style={{ marginTop: 8 }}>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <Text
                         style={{
-                          backgroundColor: "rgba(0,0,0,0.35)",
-                          color: "white",
-                          padding: 12,
-                          borderRadius: 14,
-                          borderWidth: 1,
-                          borderColor: "rgba(255,255,255,0.12)",
+                          color: "#fff",
+                          fontWeight: "900",
+                          fontSize: 16,
                         }}
-                      />
-                      <TextInput
-                        placeholder="Escribe la palabra secreta..."
-                        value={customWord}
-                        onChangeText={setCustomWord}
-                        placeholderTextColor="#777"
+                      >
+                        Categorías ({isPro ? "PRO" : "FREE"})
+                      </Text>
+                      <Text
                         style={{
-                          backgroundColor: "rgba(0,0,0,0.35)",
-                          color: "white",
-                          padding: 12,
-                          borderRadius: 14,
-                          borderWidth: 1,
-                          borderColor: "rgba(255,255,255,0.12)",
+                          color: "rgba(255,255,255,0.6)",
+                          fontWeight: "800",
                         }}
-                      />
+                      >
+                        Seleccionadas: {allowedCategories.length}
+                      </Text>
                     </View>
-                  )}
 
-                  <View
-                    style={{ flexDirection: "row", gap: 10, marginTop: 10 }}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Btn
-                        label="Volver"
-                        onPress={() => setPhase("home")}
-                        variant="ghost"
-                      />
+                    <View style={{ height: 12 }} />
+
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                    >
+                      {CATEGORIES.map((c) => {
+                        const selected = selectedCategories.includes(c.id);
+                        const locked = c.tier === "pro" && !isPro;
+
+                        return (
+                          <Pressable
+                            key={c.id}
+                            onPress={() => toggleCategory(c.id)}
+                            style={({ pressed }) => [
+                              {
+                                paddingVertical: 10,
+                                paddingHorizontal: 14,
+                                borderRadius: 999,
+                                marginRight: 10,
+                                borderWidth: 1,
+                                borderColor: selected
+                                  ? "rgba(59,130,246,0.55)"
+                                  : "rgba(255,255,255,0.14)",
+                                backgroundColor: selected
+                                  ? "rgba(59,130,246,0.20)"
+                                  : "rgba(255,255,255,0.06)",
+                                opacity: locked ? 0.45 : 1,
+                              },
+                              pressed && { opacity: 0.75 },
+                            ]}
+                          >
+                            <Text style={{ color: "#fff", fontWeight: "900" }}>
+                              {c.emoji} {c.label}{" "}
+                              {c.tier === "pro"
+                                ? locked
+                                  ? "🔒"
+                                  : "PRO"
+                                : "FREE"}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+
+                    <View style={{ height: 12 }} />
+
+                    <View style={{ flexDirection: "row" }}>
+                      <View style={{ flex: 1, marginRight: 10 }}>
+                        <Btn
+                          label="Seleccionar todo"
+                          onPress={selectAllAllowed}
+                          variant="solid"
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Btn
+                          label="Limpiar"
+                          onPress={clearCategories}
+                          variant="ghost"
+                        />
+                      </View>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Btn
-                        label="Jugar"
-                        onPress={startNewRound}
-                        variant="action"
-                        disabled={players.length < 3}
-                      />
-                    </View>
+
+                    <Text
+                      style={{
+                        marginTop: 10,
+                        color: "rgba(255,255,255,0.55)",
+                        lineHeight: 18,
+                      }}
+                    >
+                      Tip: si no eliges ninguna, se usarán las categorías
+                      disponibles de tu plan.
+                    </Text>
+                  </GlassCard>
+                )}
+
+                <View style={{ height: 12 }} />
+
+                <Btn
+                  label={
+                    useCustomWord ? "Palabra: Manual" : "Palabra: Aleatoria"
+                  }
+                  onPress={() => setUseCustomWord((v) => !v)}
+                  variant="ghost"
+                />
+
+                {useCustomWord && (
+                  <View style={{ marginTop: 12 }}>
+                    <TextInput
+                      placeholder="Categoría (ej: Lugar, Comida...)"
+                      value={customCategory}
+                      onChangeText={setCustomCategory}
+                      placeholderTextColor="#777"
+                      style={{
+                        backgroundColor: "rgba(0,0,0,0.35)",
+                        color: "white",
+                        padding: 12,
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        borderColor: "rgba(255,255,255,0.12)",
+                        marginBottom: 10,
+                      }}
+                    />
+                    <TextInput
+                      placeholder="Escribe la palabra secreta..."
+                      value={customWord}
+                      onChangeText={setCustomWord}
+                      placeholderTextColor="#777"
+                      style={{
+                        backgroundColor: "rgba(0,0,0,0.35)",
+                        color: "white",
+                        padding: 12,
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        borderColor: "rgba(255,255,255,0.12)",
+                      }}
+                    />
+                  </View>
+                )}
+
+                <View style={{ flexDirection: "row", marginTop: 14 }}>
+                  <View style={{ flex: 1, marginRight: 10 }}>
+                    <Btn
+                      label="Volver"
+                      onPress={() => setPhase("home")}
+                      variant="ghost"
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Btn
+                      label="Jugar"
+                      onPress={startNewRound}
+                      variant="action"
+                      disabled={players.length < 3}
+                    />
                   </View>
                 </View>
               </KeyboardAvoidingView>
@@ -602,7 +872,7 @@ export default function ImpostorGame({ navigation }: any) {
                 >
                   Turno de
                 </Text>
-                <BigTitle>{currentPlayer?.name}</BigTitle>
+                <BigTitle>{currentPlayer?.name || "Jugador"}</BigTitle>
                 <Text
                   style={{
                     color: "rgba(255,255,255,0.65)",
@@ -615,7 +885,7 @@ export default function ImpostorGame({ navigation }: any) {
                   Asegúrate de que nadie más esté mirando la pantalla.
                 </Text>
                 <Btn
-                  label={`SOY ${currentPlayer?.name?.toUpperCase() || "YO"}`}
+                  label={`SOY ${(currentPlayer?.name || "YO").toUpperCase()}`}
                   onPress={() => setPhase("reveal_secret")}
                   variant="action"
                 />
@@ -635,7 +905,7 @@ export default function ImpostorGame({ navigation }: any) {
                   >
                     Hola,{" "}
                     <Text style={{ color: "white", fontWeight: "900" }}>
-                      {currentPlayer?.name}
+                      {currentPlayer?.name || "Jugador"}
                     </Text>
                   </Text>
                 </View>
@@ -712,7 +982,7 @@ export default function ImpostorGame({ navigation }: any) {
                               textAlign: "center",
                             }}
                           >
-                            {secret?.word}
+                            {secretWord}
                           </Text>
                           <Text
                             style={{
@@ -720,7 +990,7 @@ export default function ImpostorGame({ navigation }: any) {
                               marginTop: 10,
                             }}
                           >
-                            Categoría: {secret?.category}
+                            Categoría: {secretCategory}
                           </Text>
                         </View>
                       )}
@@ -829,18 +1099,18 @@ export default function ImpostorGame({ navigation }: any) {
                   </Text>
                 </View>
 
-                <View
-                  style={{ flexDirection: "row", gap: 10, marginBottom: 18 }}
-                >
-                  <Btn
-                    label="60s"
-                    disabled={discussionRunning}
-                    onPress={() => {
-                      setDiscussionRunning(true);
-                      setDiscussionEndsAt(Date.now() + 61000);
-                    }}
-                    variant={discussionRunning ? "ghost" : "solid"}
-                  />
+                <View style={{ flexDirection: "row", marginBottom: 18 }}>
+                  <View style={{ marginRight: 10 }}>
+                    <Btn
+                      label="60s"
+                      disabled={discussionRunning}
+                      onPress={() => {
+                        setDiscussionRunning(true);
+                        setDiscussionEndsAt(Date.now() + 61000);
+                      }}
+                      variant={discussionRunning ? "ghost" : "solid"}
+                    />
+                  </View>
                   <Btn
                     label="120s"
                     disabled={discussionRunning}
@@ -877,7 +1147,9 @@ export default function ImpostorGame({ navigation }: any) {
                 <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 16 }}>
                   Turno de votar
                 </Text>
-                <BigTitle>{roundPlayers[voteIndex]?.name}</BigTitle>
+                <BigTitle>
+                  {roundPlayers[voteIndex]?.name || "Jugador"}
+                </BigTitle>
                 <View style={{ height: 34 }} />
                 <Btn
                   label="ABRIR VOTACIÓN"
@@ -899,7 +1171,7 @@ export default function ImpostorGame({ navigation }: any) {
                 >
                   Votando como:{" "}
                   <Text style={{ color: "white", fontWeight: "900" }}>
-                    {roundPlayers[voteIndex]?.name}
+                    {roundPlayers[voteIndex]?.name || "Jugador"}
                   </Text>
                 </Text>
 
@@ -1036,19 +1308,18 @@ export default function ImpostorGame({ navigation }: any) {
                     >
                       Palabra secreta:{" "}
                       <Text style={{ color: "white", fontWeight: "900" }}>
-                        {secret?.word}
+                        {secretWord}
                       </Text>
                     </Text>
 
                     <View
                       style={{
                         flexDirection: "row",
-                        gap: 10,
                         marginTop: 26,
                         width: "100%",
                       }}
                     >
-                      <View style={{ flex: 1 }}>
+                      <View style={{ flex: 1, marginRight: 10 }}>
                         <Btn
                           label="Inicio"
                           onPress={() => setPhase("home")}
